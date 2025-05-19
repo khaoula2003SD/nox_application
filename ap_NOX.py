@@ -23,7 +23,7 @@ X = df.drop(columns=['date','Nox_baf','Nox opsis'])
 X = X.apply(pd.to_numeric, errors='coerce').fillna(X.mean())
 
 # 4. Chargement des modèles
-model_baf = joblib.load("Nox1_modele.pkl")
+model_baf = joblib.load("Nox1_modèle.pkl")
 model_opsis = joblib.load("Nox_opsis_linearregression.pkl")
 
 # 5. Prédiction
