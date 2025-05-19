@@ -17,104 +17,127 @@ import streamlit as st
 import pandas as pd
 import joblib
 import matplotlib.pyplot as plt
-from datetime import datetime
+from PIL import Image
+import time
+import requests
+from io import BytesIO
+import plotly.express as px
 
-# Configuration de la page
-st.set_page_config(page_title="🔮 NOx Prediction Dashboard", layout="wide", page_icon="🌫️")
-st.title("🌫️ NOx Air Pollution Prediction")
+# --- Page Config ---
+st.set_page_config(page_title="NOx Monitor | Cimenterie", layout="wide", page_icon="🌫️")
 
-# --- SIDEBAR ---
-with st.sidebar:
-    st.header("📂 1. Chargement du fichier")
-    uploaded_file = st.file_uploader("Importer un fichier CSV", type="csv")
-    
-    if not uploaded_file:
-        st.warning("⛔ Veuillez charger un fichier CSV pour continuer.")
-        st.stop()
-    
-    st.success("✅ Fichier chargé avec succès !")
+# --- CSS Styling ---
+st.markdown("""
+    <style>
+    .main {
+        background-color: #f5f7fa;
+        color: #333;
+        font-family: 'Segoe UI', sans-serif;
+    }
+    .block-container {
+        padding-top: 2rem;
+    }
+    .title-style {
+        font-size: 3em;
+        font-weight: bold;
+        color: #2c3e50;
+        text-align: center;
+    }
+    .subheader-style {
+        font-size: 1.3em;
+        color: #7f8c8d;
+        margin-bottom: 1rem;
+    }
+    .alert-box {
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+        margin: 0.3rem 0;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-# --- DONNÉES ---
-@st.cache_data(show_spinner=False)
-def load_data(file):
-    df = pd.read_csv(file, na_values=["null", "NA"])
-    df['date'] = pd.to_datetime(df['date'], format="%d.%m.%Y %H:%M")
-    return df
+# --- Loading Animation ---
+with st.spinner("Chargement de l'application en cours..."):
+    time.sleep(1.5)
 
-with st.spinner("⏳ Chargement des données..."):
-    df = load_data(uploaded_file)
+# --- Header ---
+st.markdown('<div class="title-style">🌫️ NOx Monitor Dashboard</div>', unsafe_allow_html=True)
+st.markdown('<div class="subheader-style">Modélisation des NOx par approche chimiométrique dans l’industrie cimentière</div>', unsafe_allow_html=True)
 
-# --- PRÉTRAITEMENT ---
-X = df.drop(columns=['date', 'Nox_baf', 'Nox opsis'])
+# --- Project Description ---
+st.markdown("## 🧾 Projet")
+st.markdown("""
+Ce projet a pour objectif de **modéliser et surveiller les émissions de NOx** dans une cimenterie grâce à une approche chimiométrique.
+
+### 🚨 Pourquoi surveiller le NOx ?
+- Le NOx (oxydes d'azote) est un gaz **hautement toxique** produit par les processus à haute température comme dans les cimenteries.
+- Il provoque des **irritations respiratoires**, participe à la formation de **pluies acides** et de **smog**.
+
+### 🎯 Objectifs :
+- Prédire les niveaux de NOx à partir de données opérationnelles.
+- Générer des alertes visuelles pour la gestion environnementale.
+""")
+
+# --- Satellite Image ---
+st.markdown("## 🌍 Données Satellites")
+try:
+    url = "https://eoimages.gsfc.nasa.gov/images/imagerecords/144000/144348/pollution_nox_omi_2021_lrg.jpg"
+    response = requests.get(url)
+    img = Image.open(BytesIO(response.content))
+    st.image(img, caption="Pollution mondiale au NOx (NASA, 2021)", use_column_width=True)
+except:
+    st.warning("Impossible de charger l'image.")
+
+# --- Upload CSV ---
+st.sidebar.header("1. Téléchargement de Données")
+uploaded_file = st.sidebar.file_uploader("Choisir un fichier CSV", type="csv")
+if not uploaded_file:
+    st.sidebar.info("Veuillez charger un fichier pour commencer.")
+    st.stop()
+
+# --- Load and Preprocess Data ---
+df = pd.read_csv(uploaded_file, na_values=["null", "NA"])
+df['date'] = pd.to_datetime(df['date'], format="%d.%m.%Y %H:%M")
+X = df.drop(columns=['date', 'Nox_baf', 'Nox opsis'], errors='ignore')
 X = X.apply(pd.to_numeric, errors='coerce').fillna(X.mean())
 
-# --- MODÈLES ---
+# --- Load Models ---
 model_baf = joblib.load("Nox1_modèle.pkl")
 model_opsis = joblib.load("Nox_opsis_linearregression.pkl")
 
-# --- PRÉDICTION ---
+# --- Predictions ---
 df['Nox_baf_pred'] = model_baf.predict(X)
 df['Nox_opsis_pred'] = model_opsis.predict(X)
 
-# --- ALERTES ---
-def alerte(val, seuil_att, seuil_dang):
-    if val >= seuil_dang:
-        return "🚨 DANGER"
-    elif val >= seuil_att:
-        return "⚠️ ATTENTION"
-    return "✅ OK"
+# --- Alert Levels ---
+def get_alert(value, att, dang):
+    if value >= dang: return "DANGER"
+    elif value >= att: return "ATTENTION"
+    return "OK"
 
-df['Alerte_baf'] = df['Nox_baf_pred'].apply(alerte, args=(400, 500))
-df['Alerte_opsis'] = df['Nox_opsis_pred'].apply(alerte, args=(350, 450))
+df['Alerte_baf'] = df['Nox_baf_pred'].apply(get_alert, args=(400, 500))
+df['Alerte_opsis'] = df['Nox_opsis_pred'].apply(get_alert, args=(350, 450))
 
-# --- STATISTIQUES RAPIDES ---
-st.markdown("### 📊 Statistiques globales")
-col1, col2 = st.columns(2)
-col1.metric("📈 Moyenne NOx BAF prédite", round(df['Nox_baf_pred'].mean(), 2))
-col2.metric("📉 Moyenne NOx OPSIS prédite", round(df['Nox_opsis_pred'].mean(), 2))
-
-# --- DISTRIBUTION DES ALERTES ---
-st.markdown("### 🚦 Distribution des alertes")
-fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-df['Alerte_baf'].value_counts().plot(kind='bar', ax=axes[0], color='skyblue', title="BAF")
-df['Alerte_opsis'].value_counts().plot(kind='bar', ax=axes[1], color='salmon', title="OPSIS")
-st.pyplot(fig)
-
-# --- VISUALISATION INTERACTIVE ---
-st.markdown("### 🕵️ Analyse temporelle des NOx prédits")
-
-target = st.radio("Sélection du modèle", ["BAF", "OPSIS"], horizontal=True)
-date_range = st.date_input("📅 Plage de dates", [df.date.min().date(), df.date.max().date()])
-
-start = pd.to_datetime(date_range[0])
-end = pd.to_datetime(date_range[1])
+# --- Graphs ---
+st.markdown("## 📊 Visualisation des Prédictions")
+target = st.selectbox("Choisir le capteur", ["BAF", "OPSIS"])
+date_range = st.date_input("Plage de dates", [df.date.min().date(), df.date.max().date()])
+start, end = pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])
 df_filtered = df[(df['date'] >= start) & (df['date'] <= end)]
 
-col_pred = 'Nox_baf_pred' if target == "BAF" else 'Nox_opsis_pred'
-col_alert = 'Alerte_baf' if target == "BAF" else 'Alerte_opsis'
-seuils = (400, 500) if target == "BAF" else (350, 450)
+pred_col = 'Nox_baf_pred' if target == "BAF" else 'Nox_opsis_pred'
+alert_col = 'Alerte_baf' if target == "BAF" else 'Alerte_opsis'
 
-# Scatter plot
-fig, ax = plt.subplots(figsize=(12, 5))
-colors = {"✅ OK": "green", "⚠️ ATTENTION": "orange", "🚨 DANGER": "red"}
-for lvl, c in colors.items():
-    sub = df_filtered[df_filtered[col_alert] == lvl]
-    ax.scatter(sub.date, sub[col_pred], label=lvl, color=c, s=10)
-for s in seuils:
-    ax.axhline(s, linestyle="--", color='gray')
-ax.legend()
-ax.set_title(f"📈 Évolution temporelle - {target}")
-st.pyplot(fig)
+fig = px.scatter(df_filtered, x="date", y=pred_col, color=alert_col,
+                 color_discrete_map={"OK": "green", "ATTENTION": "orange", "DANGER": "red"},
+                 title=f"NOx {target} - Prédictions dans le Temps")
+st.plotly_chart(fig, use_container_width=True)
 
-# --- TABLEAU FINAL ---
-st.markdown("### 📋 Tableau récapitulatif")
-df['Alerte'] = df[['Alerte_opsis', 'Alerte_baf']].max(axis=1)
-colonnes = ['date', 'Nox opsis', 'Nox_opsis_pred', 'Alerte_opsis',
-            'Nox_baf', 'Nox_baf_pred', 'Alerte_baf', 'Alerte']
-st.dataframe(df[colonnes], use_container_width=True)
+# --- Final Table ---
+st.markdown("## 🧾 Récapitulatif des Données")
+st.dataframe(df[['date', 'Nox opsis', 'Nox_opsis_pred', 'Alerte_opsis', 'Nox_baf', 'Nox_baf_pred', 'Alerte_baf']])
 
-# --- EXPORT CSV ---
-st.markdown("### 💾 Exporter les résultats")
-csv = df.to_csv(index=False).encode('utf-8')
-st.download_button("📥 Télécharger les résultats complets", csv, "resultats_nox.csv", "text/csv")
+# --- Download Button ---
+st.markdown("## 💾 Téléchargement")
+st.download_button("Télécharger les résultats", df.to_csv(index=False).encode("utf-8"), "nox_resultats.csv", "text/csv")
 
